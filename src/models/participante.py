@@ -1,8 +1,7 @@
-from flask_sqlalchemy import SQLAlchemy
+from src.models.db import db
 from datetime import datetime
 import uuid
 
-db = SQLAlchemy()
 
 class Participante(db.Model):
     id = db.Column(db.Integer, primary_key=True)

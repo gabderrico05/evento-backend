@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from src.models.participante import Participante, db
 import re
+import traceback
 
 evento_bp = Blueprint('evento', __name__)
 
@@ -116,6 +117,7 @@ def resgatar_ingresso():
         
     except Exception as e:
         db.session.rollback()
+        traceback.print_exc()
         return jsonify({'error': 'Erro interno do servidor'}), 500
 
 @evento_bp.route('/participantes', methods=['GET'])
