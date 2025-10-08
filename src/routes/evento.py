@@ -56,7 +56,7 @@ def resgatar_ingresso():
         data = request.get_json()
         
         # Validação dos dados obrigatórios
-        campos_obrigatorios = ['nome', 'email', 'cpf', 'telefone', 'codigoEvento']
+        campos_obrigatorios = ['nome', 'email', 'cpf', 'telefone', 'senha']
         for campo in campos_obrigatorios:
             if not data.get(campo) or not data[campo].strip():
                 return jsonify({'error': f'Campo {campo} é obrigatório'}), 400
@@ -65,7 +65,7 @@ def resgatar_ingresso():
         email = data['email'].strip().lower()
         cpf = re.sub(r'\D', '', data['cpf'])
         telefone = re.sub(r'\D', '', data['telefone'])
-        codigo_evento = data['codigoEvento'].strip().upper()
+        senha = data['senha']
         
         # Validações específicas
         if len(nome) < 2:
@@ -80,24 +80,16 @@ def resgatar_ingresso():
         if not validar_telefone(telefone):
             return jsonify({'error': 'Telefone inválido'}), 400
         
-        if len(codigo_evento) < 6:
-            return jsonify({'error': 'Código do evento deve ter pelo menos 6 caracteres'}), 400
-        
         # Verificar se o CPF já está cadastrado
         participante_existente = Participante.query.filter_by(cpf=cpf).first()
         if participante_existente:
             if participante_existente.ativo:
-                return jsonify({'error': 'CPF já possui ingresso resgatado para este evento'}), 400
+                return jsonify({'error': 'CPF já possui ingresso resgatado'}), 400
         
         # Verificar se o email já está cadastrado
         email_existente = Participante.query.filter_by(email=email).first()
         if email_existente and email_existente.ativo:
-            return jsonify({'error': 'Email já possui ingresso resgatado para este evento'}), 400
-        
-        # Validar código do evento (códigos válidos fictícios)
-        codigos_validos = ['EVENTO2025', 'ESPECIAL2025', 'PREMIUM2025', 'VIP2025']
-        if codigo_evento not in codigos_validos:
-            return jsonify({'error': 'Código do evento inválido'}), 400
+            return jsonify({'error': 'Email já possui ingresso resgatado'}), 400
         
         # Criar novo participante
         novo_participante = Participante(
@@ -105,7 +97,7 @@ def resgatar_ingresso():
             email=email,
             cpf=cpf,
             telefone=telefone,
-            codigo_evento=codigo_evento
+            senha=senha
         )
         
         # Salvar no banco de dados
@@ -141,16 +133,29 @@ def buscar_participante(participante_id):
     except Exception as e:
         return jsonify({'error': 'Erro ao buscar participante'}), 500
 
-@evento_bp.route('/validar-codigo/<codigo>', methods=['GET'])
-def validar_codigo_evento(codigo):
-    """Endpoint para validar se um código de evento é válido"""
+## Rota de validação de código removida pois código de evento não é mais usado
+
+@evento_bp.route('/login', methods=['POST'])
+def login_participante():
     try:
-        codigos_validos = ['EVENTO2025', 'ESPECIAL2025', 'PREMIUM2025', 'VIP2025']
-        codigo_upper = codigo.upper()
-        
-        if codigo_upper in codigos_validos:
-            return jsonify({'valido': True, 'codigo': codigo_upper}), 200
-        else:
-            return jsonify({'valido': False, 'codigo': codigo_upper}), 200
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Dados não enviados'}), 400
+
+        email = data.get('email', '').strip().lower()
+        senha = data.get('senha', '')
+
+        if not email or not senha:
+            return jsonify({'error': 'Email e senha são obrigatórios'}), 400
+
+        participante = Participante.query.filter_by(email=email).first()
+        if not participante or not participante.ativo:
+            return jsonify({'error': 'Credenciais inválidas'}), 401
+
+        if not participante.verificar_senha(senha):
+            return jsonify({'error': 'Credenciais inválidas'}), 401
+
+        return jsonify(participante.to_dict()), 200
     except Exception as e:
-        return jsonify({'error': 'Erro ao validar código'}), 500
+        traceback.print_exc()
+        return jsonify({'error': 'Erro interno do servidor'}), 500
