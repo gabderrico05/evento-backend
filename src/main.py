@@ -8,10 +8,12 @@ from src.models.db import db
 from src.models.participante import Participante
 from src.routes.user import user_bp
 from src.routes.evento import evento_bp
+from src.routes.auth import auth_bp
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.config['SECRET_KEY'] = 'asdf#FGSgvasgf$5$WGT'
 
+app.register_blueprint(auth_bp, url_prefix='/api/auth')
 app.register_blueprint(user_bp, url_prefix='/api')
 app.register_blueprint(evento_bp, url_prefix='/api')
 
