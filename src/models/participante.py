@@ -49,18 +49,54 @@ class Participante(db.Model):
             return f"({telefone[:2]}) {telefone[2:7]}-{telefone[7:]}"
         return telefone
 
-    def to_dict(self):
-        return {
-            'id': self.id,
+    def to_dict(self, include_internal_id=False):
+        """
+        Converte o participante para dicionário.
+        
+        Args:
+            include_internal_id (bool): Se True, inclui o ID interno (apenas para admin)
+        
+        Returns:
+            dict: Dados do participante sem expor ID interno (por padrão)
+        
+        Security:
+            - ID interno nunca é exposto por padrão
+            - Apenas numero_ingresso é usado como identificador público
+            - CPF completo não é exposto (use cpf_mascarado se necessário)
+        """
+        result = {
             'nome': self.nome,
             'email': self.email,
-            'cpf': self.cpf,
             'cpfFormatado': self.format_cpf(),
             'telefone': self.format_telefone(),
             'numeroIngresso': self.numero_ingresso,
             'dataResgate': self.data_resgate.isoformat() if self.data_resgate else None,
             'ativo': self.ativo
         }
+        
+        # ID interno apenas se explicitamente solicitado (uso administrativo)
+        if include_internal_id:
+            result['_internal_id'] = self.id
+        
+        return result
+    
+    def to_dict_safe(self):
+        """
+        Versão ultra-segura que mascara dados sensíveis.
+        Útil para listagens públicas ou logs.
+        """
+        return {
+            'nome': self.nome,
+            'email': self.email[0:3] + '***@' + self.email.split('@')[1] if '@' in self.email else '***',
+            'cpf': '***.' + self.cpf[3:6] + '.***-**',
+            'numeroIngresso': self.numero_ingresso,
+            'dataResgate': self.data_resgate.isoformat() if self.data_resgate else None
+        }
 
     def __repr__(self):
-        return f'<Participante {self.nome} - {self.numero_ingresso}>'
+        """
+        Representação do objeto sem expor ID interno.
+        Usa numero_ingresso para identificação segura.
+        """
+        return f'<Participante {self.numero_ingresso} - {self.nome}>'
+

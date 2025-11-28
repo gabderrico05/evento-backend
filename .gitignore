@@ -3,6 +3,20 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Environment variables (SEGURANÇA: nunca versionar credenciais)
+.env
+.env.local
+.env.*.local
+
+# Flask session files
+.flask_session/
+flask_session/
+
+# Logs (não versionar arquivos de log)
+*.log
+app.log
+logs/
+
 # C extensions
 *.so
 

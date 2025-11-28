@@ -1,0 +1,36 @@
+[Unit]
+Description=Gunicorn daemon for Flask Evento App
+After=network.target
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/evento-app/backend
+Environment="PATH=/var/www/evento-app/backend/venv/bin"
+Environment="FLASK_ENV=production"
+ExecStart=/var/www/evento-app/backend/venv/bin/gunicorn \
+    --config gunicorn_config.py \
+    --bind 127.0.0.1:8000 \
+    --workers 3 \
+    --worker-class sync \
+    --threads 2 \
+    --timeout 30 \
+    --access-logfile /var/www/evento-app/backend/logs/gunicorn_access.log \
+    --error-logfile /var/www/evento-app/backend/logs/gunicorn_error.log \
+    --log-level info \
+    src.main:app
+
+# Restart automaticamente se falhar
+Restart=always
+RestartSec=5
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Limits
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
