@@ -1,0 +1,357 @@
+{
+  "timestamp": "2025-12-05T15:18:30.309045",
+  "tool": "pip-audit",
+  "project": "evento-backend",
+  "audit_data": {
+    "dependencies": [
+      {
+        "name": "argon2-cffi",
+        "version": "23.1.0",
+        "vulns": []
+      },
+      {
+        "name": "blinker",
+        "version": "1.9.0",
+        "vulns": []
+      },
+      {
+        "name": "click",
+        "version": "8.2.1",
+        "vulns": []
+      },
+      {
+        "name": "flask",
+        "version": "3.1.1",
+        "vulns": []
+      },
+      {
+        "name": "flask-cors",
+        "version": "6.0.0",
+        "vulns": []
+      },
+      {
+        "name": "flask-sqlalchemy",
+        "version": "3.1.1",
+        "vulns": []
+      },
+      {
+        "name": "flask-session",
+        "version": "0.8.0",
+        "vulns": []
+      },
+      {
+        "name": "greenlet",
+        "version": "3.2.4",
+        "vulns": []
+      },
+      {
+        "name": "itsdangerous",
+        "version": "2.2.0",
+        "vulns": []
+      },
+      {
+        "name": "jinja2",
+        "version": "3.1.6",
+        "vulns": []
+      },
+      {
+        "name": "markupsafe",
+        "version": "3.0.2",
+        "vulns": []
+      },
+      {
+        "name": "pyjwt",
+        "version": "2.9.0",
+        "vulns": []
+      },
+      {
+        "name": "pyotp",
+        "version": "2.9.0",
+        "vulns": []
+      },
+      {
+        "name": "qrcode",
+        "version": "8.0",
+        "vulns": []
+      },
+      {
+        "name": "pillow",
+        "version": "11.0.0",
+        "vulns": []
+      },
+      {
+        "name": "sqlalchemy",
+        "version": "2.0.41",
+        "vulns": []
+      },
+      {
+        "name": "typing-extensions",
+        "version": "4.14.0",
+        "vulns": []
+      },
+      {
+        "name": "werkzeug",
+        "version": "3.1.3",
+        "vulns": [
+          {
+            "id": "CVE-2025-66221",
+            "fix_versions": [
+              "3.1.4"
+            ],
+            "aliases": [
+              "GHSA-hgf8-39gv-g3f2"
+            ],
+            "description": "Werkzeug's `safe_join` function allows path segments with Windows device names. On Windows, there are special device names such as `CON`, `AUX`, etc that are implicitly present and readable in every directory. `send_from_directory` uses `safe_join` to safely serve files at user-specified paths under a directory. If the application is running on Windows, and the requested path ends with a special device name, the file will be opened successfully, but reading will hang indefinitely."
+          }
+        ]
+      },
+      {
+        "name": "python-dotenv",
+        "version": "1.0.0",
+        "vulns": []
+      },
+      {
+        "name": "cryptography",
+        "version": "42.0.5",
+        "vulns": [
+          {
+            "id": "GHSA-h4gh-qq45-vh27",
+            "fix_versions": [
+              "43.0.1"
+            ],
+            "aliases": [],
+            "description": "pyca/cryptography's wheels include a statically linked copy of OpenSSL. The versions of OpenSSL included in cryptography 37.0.0-43.0.0 are vulnerable to a security issue. More details about the vulnerability itself can be found in https://openssl-library.org/news/secadv/20240903.txt.  If you are building cryptography source (\"sdist\") then you are responsible for upgrading your copy of OpenSSL. Only users installing from wheels built by the cryptography project (i.e., those distributed on PyPI) need to update their cryptography versions. "
+          },
+          {
+            "id": "CVE-2024-12797",
+            "fix_versions": [
+              "44.0.1"
+            ],
+            "aliases": [
+              "GHSA-79v4-65xg-pq4g"
+            ],
+            "description": "pyca/cryptography's wheels include a statically linked copy of OpenSSL. The versions of OpenSSL included in cryptography 42.0.0-44.0.0 are vulnerable to a security issue. More details about the vulnerability itself can be found in https://openssl-library.org/news/secadv/20250211.txt.  If you are building cryptography source (\"sdist\") then you are responsible for upgrading your copy of OpenSSL. Only users installing from wheels built by the cryptography project (i.e., those distributed on PyPI) need to update their cryptography versions."
+          }
+        ]
+      },
+      {
+        "name": "psycopg2-binary",
+        "version": "2.9.11",
+        "vulns": []
+      },
+      {
+        "name": "gunicorn",
+        "version": "21.2.0",
+        "vulns": [
+          {
+            "id": "CVE-2024-1135",
+            "fix_versions": [
+              "22.0.0"
+            ],
+            "aliases": [
+              "GHSA-w3h3-4rj7-4ph4"
+            ],
+            "description": "Gunicorn fails to properly validate Transfer-Encoding headers, leading to HTTP Request Smuggling (HRS) vulnerabilities. By crafting requests with conflicting Transfer-Encoding headers, attackers can bypass security restrictions and access restricted endpoints. This issue is due to Gunicorn's handling of Transfer-Encoding headers, where it incorrectly processes requests with multiple, conflicting Transfer-Encoding headers, treating them as chunked regardless of the final encoding specified. This vulnerability has been shown to allow access to endpoints restricted by gunicorn. This issue has been addressed in version 22.0.0.  To be affected users must have a network path which does not filter out invalid requests. These users are advised to block access to restricted endpoints via a firewall or other mechanism if they are unable to update."
+          },
+          {
+            "id": "CVE-2024-6827",
+            "fix_versions": [
+              "22.0.0"
+            ],
+            "aliases": [
+              "GHSA-hc5x-x2vx-497g"
+            ],
+            "description": "Gunicorn version 21.2.0 does not properly validate the value of the 'Transfer-Encoding' header as specified in the RFC standards, which leads to the default fallback method of 'Content-Length,' making it vulnerable to TE.CL request smuggling. This vulnerability can lead to cache poisoning, data exposure, session manipulation, SSRF, XSS, DoS, data integrity compromise, security bypass, information leakage, and business logic abuse."
+          }
+        ]
+      },
+      {
+        "name": "pip-audit",
+        "version": "2.7.3",
+        "vulns": []
+      },
+      {
+        "name": "cyclonedx-python-lib",
+        "version": "7.6.2",
+        "vulns": []
+      },
+      {
+        "name": "license-expression",
+        "version": "30.4.4",
+        "vulns": []
+      },
+      {
+        "name": "packageurl-python",
+        "version": "0.17.6",
+        "vulns": []
+      },
+      {
+        "name": "py-serializable",
+        "version": "1.1.2",
+        "vulns": []
+      },
+      {
+        "name": "defusedxml",
+        "version": "0.7.1",
+        "vulns": []
+      },
+      {
+        "name": "sortedcontainers",
+        "version": "2.4.0",
+        "vulns": []
+      },
+      {
+        "name": "boolean-py",
+        "version": "5.0",
+        "vulns": []
+      },
+      {
+        "name": "cachecontrol",
+        "version": "0.14.4",
+        "vulns": []
+      },
+      {
+        "name": "msgpack",
+        "version": "1.1.2",
+        "vulns": []
+      },
+      {
+        "name": "cffi",
+        "version": "2.0.0",
+        "vulns": []
+      },
+      {
+        "name": "filelock",
+        "version": "3.20.0",
+        "vulns": []
+      },
+      {
+        "name": "html5lib",
+        "version": "1.1",
+        "vulns": []
+      },
+      {
+        "name": "msgspec",
+        "version": "0.20.0",
+        "vulns": []
+      },
+      {
+        "name": "packaging",
+        "version": "25.0",
+        "vulns": []
+      },
+      {
+        "name": "pip-api",
+        "version": "0.0.34",
+        "vulns": []
+      },
+      {
+        "name": "pip-requirements-parser",
+        "version": "32.0.1",
+        "vulns": []
+      },
+      {
+        "name": "requests",
+        "version": "2.32.5",
+        "vulns": []
+      },
+      {
+        "name": "charset-normalizer",
+        "version": "3.4.4",
+        "vulns": []
+      },
+      {
+        "name": "idna",
+        "version": "3.11",
+        "vulns": []
+      },
+      {
+        "name": "urllib3",
+        "version": "2.6.0",
+        "vulns": []
+      },
+      {
+        "name": "certifi",
+        "version": "2025.11.12",
+        "vulns": []
+      },
+      {
+        "name": "rich",
+        "version": "14.2.0",
+        "vulns": []
+      },
+      {
+        "name": "pygments",
+        "version": "2.19.2",
+        "vulns": []
+      },
+      {
+        "name": "markdown-it-py",
+        "version": "4.0.0",
+        "vulns": []
+      },
+      {
+        "name": "mdurl",
+        "version": "0.1.2",
+        "vulns": []
+      },
+      {
+        "name": "six",
+        "version": "1.17.0",
+        "vulns": []
+      },
+      {
+        "name": "toml",
+        "version": "0.10.2",
+        "vulns": []
+      },
+      {
+        "name": "argon2-cffi-bindings",
+        "version": "25.1.0",
+        "vulns": []
+      },
+      {
+        "name": "cachelib",
+        "version": "0.13.0",
+        "vulns": []
+      },
+      {
+        "name": "colorama",
+        "version": "0.4.6",
+        "vulns": []
+      },
+      {
+        "name": "pycparser",
+        "version": "2.23",
+        "vulns": []
+      },
+      {
+        "name": "pyparsing",
+        "version": "3.2.5",
+        "vulns": []
+      },
+      {
+        "name": "webencodings",
+        "version": "0.5.1",
+        "vulns": []
+      }
+    ],
+    "fixes": [
+      {
+        "name": "werkzeug",
+        "old_version": "3.1.3",
+        "new_version": "3.1.4"
+      },
+      {
+        "name": "cryptography",
+        "old_version": "42.0.5",
+        "new_version": "44.0.1"
+      },
+      {
+        "name": "gunicorn",
+        "old_version": "21.2.0",
+        "new_version": "22.0.0"
+      }
+    ]
+  }
+}

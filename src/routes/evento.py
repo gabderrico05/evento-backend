@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from src.models.participante import Participante, db
+from src.models.audit_log import AuditLog
 from functools import wraps
 import re
 import logging
@@ -148,15 +149,39 @@ def resgatar_ingresso():
         
         # Validações específicas
         if len(nome) < 2:
+            AuditLog.log_validation_error(
+                field='nome',
+                value=nome[:50],
+                reason='Nome muito curto (mínimo 2 caracteres)'
+            )
+            db.session.commit()
             return jsonify({'error': 'Nome deve ter pelo menos 2 caracteres'}), 400
         
         if not validar_email(email):
+            AuditLog.log_validation_error(
+                field='email',
+                value=email,
+                reason='Formato de email inválido'
+            )
+            db.session.commit()
             return jsonify({'error': 'Email inválido'}), 400
         
         if not validar_cpf(cpf):
+            AuditLog.log_validation_error(
+                field='cpf',
+                value=cpf,
+                reason='CPF inválido (algoritmo de validação)'
+            )
+            db.session.commit()
             return jsonify({'error': 'CPF inválido'}), 400
         
         if not validar_telefone(telefone):
+            AuditLog.log_validation_error(
+                field='telefone',
+                value=telefone,
+                reason='Formato de telefone inválido'
+            )
+            db.session.commit()
             return jsonify({'error': 'Telefone inválido'}), 400
         
         # Verificar se o CPF já está cadastrado
@@ -185,6 +210,19 @@ def resgatar_ingresso():
         
         # Log de criação usando numero_ingresso (não ID)
         print(f"[INFO] Novo ingresso resgatado: {novo_participante.numero_ingresso} - {novo_participante.nome}")
+        
+        # AUDIT LOG: Ingresso criado com sucesso
+        AuditLog.log_ticket_redemption_success(
+            user_identifier=email,
+            ticket_number=novo_participante.numero_ingresso,
+            details={
+                'nome': nome,
+                'cpf': cpf,
+                'telefone': telefone,
+                'action': 'ticket_created'
+            }
+        )
+        db.session.commit()
         
         # Retornar dados do ingresso (sem ID interno)
         return jsonify(novo_participante.to_dict()), 201
@@ -410,3 +448,224 @@ def buscar_meu_ingresso(participante_atual):
     except Exception as e:
         logger.error(f"Erro ao buscar ingresso: {str(e)}", exc_info=True)
         raise
+
+
+# ==========================================
+# RESGATE DE INGRESSO COM CONTROLE DE CONCORRÊNCIA
+# ==========================================
+
+@evento_bp.route('/evento/resgatar-ingresso-validar', methods=['POST'])
+def resgatar_ingresso_validar():
+    """
+    Endpoint para resgatar (validar) um ingresso no evento.
+    
+    Usa UPDATE ATÔMICO com controle de concorrência para prevenir race conditions.
+    
+    Request Body:
+        {
+            "numero_ingresso": "EVT12345678"
+        }
+    
+    Returns:
+        200: Ingresso resgatado com sucesso
+        400: Dados inválidos
+        404: Ingresso não encontrado
+        409: Ingresso já resgatado (conflict)
+        500: Erro interno
+    
+    Security & Concurrency:
+        - Prepared statements (SQL Injection protection)
+        - Atomic UPDATE (race condition protection)
+        - Apenas 1 transação pode resgatar por vez
+        - ACID compliance garantido pelo PostgreSQL
+    
+    Example Success:
+        POST /api/evento/resgatar-ingresso-validar
+        {
+            "numero_ingresso": "EVT12345678"
+        }
+        
+        Response 200:
+        {
+            "success": true,
+            "message": "Ingresso resgatado com sucesso",
+            "participante": {
+                "nome": "João Silva",
+                "email": "joao@example.com",
+                "numeroIngresso": "EVT12345678",
+                "dataResgate": "2024-01-15T10:30:00.000000",
+                "resgatado": true
+            }
+        }
+    
+    Example Conflict:
+        Response 409:
+        {
+            "success": false,
+            "error": "Ingresso já resgatado em 2024-01-15T09:00:00.000000",
+            "conflict": true
+        }
+    """
+    try:
+        data = request.get_json()
+        
+        # Validação de entrada
+        if not data or 'numero_ingresso' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Número de ingresso é obrigatório'
+            }), 400
+        
+        numero_ingresso = data.get('numero_ingresso', '').strip()
+        
+        if not numero_ingresso:
+            return jsonify({
+                'success': False,
+                'error': 'Número de ingresso não pode ser vazio'
+            }), 400
+        
+        # Validação de formato básico
+        if len(numero_ingresso) < 5:
+            return jsonify({
+                'success': False,
+                'error': 'Número de ingresso inválido'
+            }), 400
+        
+        logger.info(f"Tentativa de resgate de ingresso: {numero_ingresso}")
+        
+        # Resgatar ingresso usando UPDATE ATÔMICO (recomendado)
+        sucesso, mensagem, participante = Participante.resgatar_ingresso_atomic(numero_ingresso)
+        
+        if not sucesso:
+            # Determinar código de status HTTP apropriado
+            if "não encontrado" in mensagem.lower():
+                status_code = 404
+            elif "já resgatado" in mensagem.lower():
+                status_code = 409  # Conflict
+            elif "inativo" in mensagem.lower():
+                status_code = 410  # Gone
+            else:
+                status_code = 400
+            
+            logger.warning(f"Falha ao resgatar ingresso {numero_ingresso}: {mensagem}")
+            
+            # AUDIT LOG: Falha no resgate
+            AuditLog.log_ticket_redemption_failure(
+                user_identifier=numero_ingresso,
+                ticket_number=numero_ingresso,
+                reason=mensagem,
+                details={
+                    'status_code': status_code,
+                    'conflict': "já resgatado" in mensagem.lower()
+                }
+            )
+            db.session.commit()
+            
+            return jsonify({
+                'success': False,
+                'error': mensagem,
+                'conflict': "já resgatado" in mensagem.lower()
+            }), status_code
+        
+        # Sucesso!
+        logger.info(f"Ingresso {numero_ingresso} resgatado com sucesso para {participante.nome}")
+        
+        # AUDIT LOG: Resgate bem-sucedido
+        AuditLog.log_ticket_redemption_success(
+            user_identifier=participante.email,
+            ticket_number=numero_ingresso,
+            details={
+                'nome': participante.nome,
+                'data_resgate': participante.data_resgate.isoformat() if participante.data_resgate else None,
+                'action': 'ticket_validated_at_event'
+            }
+        )
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': mensagem,
+            'participante': {
+                'nome': participante.nome,
+                'email': participante.email,
+                'numeroIngresso': participante.numero_ingresso,
+                'dataResgate': participante.data_resgate.isoformat() if participante.data_resgate else None,
+                'resgatado': participante.resgatado
+            }
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Erro ao resgatar ingresso: {str(e)}", exc_info=True)
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': 'Erro interno ao processar resgate',
+            'internal_error': True
+        }), 500
+
+
+@evento_bp.route('/evento/verificar-ingresso/<numero_ingresso>', methods=['GET'])
+def verificar_ingresso(numero_ingresso):
+    """
+    Verifica status de um ingresso sem resgatá-lo.
+    
+    Args:
+        numero_ingresso (str): Número do ingresso na URL
+    
+    Returns:
+        200: Status do ingresso
+        404: Ingresso não encontrado
+    
+    Example:
+        GET /api/evento/verificar-ingresso/EVT12345678
+        
+        Response 200:
+        {
+            "numero_ingresso": "EVT12345678",
+            "resgatado": false,
+            "ativo": true,
+            "pode_resgatar": true,
+            "participante": {
+                "nome": "João Silva",
+                "email": "joao@example.com"
+            }
+        }
+    """
+    try:
+        if not numero_ingresso or len(numero_ingresso.strip()) < 5:
+            return jsonify({
+                'error': 'Número de ingresso inválido'
+            }), 400
+        
+        numero_ingresso = numero_ingresso.strip().upper()
+        
+        # Buscar participante
+        participante = Participante.buscar_por_numero_ingresso(numero_ingresso)
+        
+        if not participante:
+            return jsonify({
+                'error': 'Ingresso não encontrado'
+            }), 404
+        
+        # Verificar se pode resgatar
+        pode, motivo = participante.pode_resgatar()
+        
+        return jsonify({
+            'numero_ingresso': participante.numero_ingresso,
+            'resgatado': participante.resgatado,
+            'ativo': participante.ativo,
+            'pode_resgatar': pode,
+            'motivo': motivo,
+            'data_resgate': participante.data_resgate.isoformat() if participante.data_resgate else None,
+            'participante': {
+                'nome': participante.nome,
+                'email': participante.email[0:3] + '***@' + participante.email.split('@')[1] if '@' in participante.email else '***'
+            }
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Erro ao verificar ingresso: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': 'Erro interno ao verificar ingresso'
+        }), 500
+

@@ -1,8 +1,10 @@
 from flask import Blueprint, jsonify, request, session
 from src.models.user import User, db
+from src.models.login_attempt import LoginAttempt
+from src.models.audit_log import AuditLog
 from sqlalchemy.exc import IntegrityError
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 import os
 import re
@@ -16,6 +18,9 @@ user_bp = Blueprint('user', __name__)
 JWT_SECRET = os.getenv('SECRET_KEY', 'asdf#FGSgvasgf$5$WGT')
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DELTA = timedelta(hours=24)
+
+# Configurações de revalidação
+REVALIDATION_INTERVAL_MINUTES = 30  # Revalidar a cada 30 minutos
 
 # Expressão regular para validação de username (lista branca)
 # Permite apenas letras (a-z, A-Z), números (0-9) e underscore (_)
@@ -63,11 +68,25 @@ def validate_username(username):
     
     # Verificar comprimento
     if len(username) < USERNAME_MIN_LENGTH or len(username) > USERNAME_MAX_LENGTH:
-        return False, f"Username deve ter entre {USERNAME_MIN_LENGTH} e {USERNAME_MAX_LENGTH} caracteres"
+        error_msg = f"Username deve ter entre {USERNAME_MIN_LENGTH} e {USERNAME_MAX_LENGTH} caracteres"
+        AuditLog.log_validation_error(
+            field='username',
+            value=username[:50],  # Limitar tamanho do log
+            reason='Comprimento inválido'
+        )
+        db.session.commit()
+        return False, error_msg
     
     # Verificar se contém apenas caracteres permitidos (lista branca)
     if not USERNAME_REGEX.match(username):
-        return False, "Username contém caracteres não permitidos. Use apenas letras, números e underscore (_)"
+        error_msg = "Username contém caracteres não permitidos. Use apenas letras, números e underscore (_)"
+        AuditLog.log_validation_error(
+            field='username',
+            value=username[:50],
+            reason='Caracteres não permitidos'
+        )
+        db.session.commit()
+        return False, error_msg
     
     # Verificar se não começa com número ou underscore (boa prática)
     if username[0].isdigit() or username[0] == '_':
@@ -123,6 +142,25 @@ def token_required(f):
             if not current_user:
                 session.clear()
                 return jsonify({'error': 'Usuário não encontrado'}), 401
+            
+            # REVALIDAÇÃO DE AUTORIZAÇÃO A CADA 30 MINUTOS
+            needs_revalidation = check_needs_revalidation(session)
+            if needs_revalidation:
+                # Revalidar usuário no banco de dados
+                revalidated_user = User.query.get(session['user_id'])
+                
+                if not revalidated_user:
+                    session.clear()
+                    logger.warning(f"Revalidação falhou: Usuário {session.get('user_id')} não encontrado")
+                    return jsonify({
+                        'error': 'Usuário não encontrado. Sessão encerrada.',
+                        'session_expired': True,
+                        'revalidation_failed': True
+                    }), 401
+                
+                # Atualizar timestamp de última revalidação
+                session['last_revalidation'] = datetime.utcnow().isoformat()
+                logger.info(f"Revalidação bem-sucedida para usuário {revalidated_user.username}")
                 
         except jwt.ExpiredSignatureError:
             session.clear()
@@ -133,6 +171,77 @@ def token_required(f):
         except jwt.InvalidTokenError:
             session.clear()
             return jsonify({'error': 'Token inválido'}), 401
+        
+        return f(current_user, *args, **kwargs)
+    
+    return decorated
+
+
+def check_needs_revalidation(session_data):
+    """
+    Verifica se a sessão precisa de revalidação baseado no tempo desde a última verificação.
+    
+    Args:
+        session_data: Dados da sessão Flask
+    
+    Returns:
+        bool: True se precisa revalidar, False caso contrário
+    """
+    if 'last_revalidation' not in session_data:
+        # Primeira vez, definir timestamp
+        session_data['last_revalidation'] = datetime.utcnow().isoformat()
+        return False
+    
+    try:
+        last_revalidation = datetime.fromisoformat(session_data['last_revalidation'])
+        time_since_revalidation = datetime.utcnow() - last_revalidation
+        
+        # Verificar se passaram 30 minutos
+        if time_since_revalidation >= timedelta(minutes=REVALIDATION_INTERVAL_MINUTES):
+            return True
+        
+        return False
+        
+    except (ValueError, TypeError) as e:
+        logger.error(f"Erro ao verificar revalidação: {str(e)}")
+        # Em caso de erro, forçar revalidação por segurança
+        return True
+
+
+def sensitive_operation_required(f):
+    """
+    Decorator para operações sensíveis que SEMPRE revalidam o usuário.
+    
+    Use para operações críticas como:
+    - Alteração de senha
+    - Exclusão de conta
+    - Alteração de permissões
+    - Transações financeiras
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # Verificar sessão
+        if 'user_id' not in session:
+            return jsonify({
+                'error': 'Sessão não encontrada. Faça login novamente.',
+                'session_expired': True
+            }), 401
+        
+        # SEMPRE revalidar para operações sensíveis
+        current_user = User.query.get(session['user_id'])
+        
+        if not current_user:
+            session.clear()
+            logger.warning(f"Operação sensível bloqueada: Usuário {session.get('user_id')} não encontrado")
+            return jsonify({
+                'error': 'Usuário não encontrado. Sessão encerrada.',
+                'session_expired': True,
+                'revalidation_failed': True
+            }), 401
+        
+        # Atualizar timestamp de revalidação
+        session['last_revalidation'] = datetime.utcnow().isoformat()
+        logger.info(f"Revalidação para operação sensível: {current_user.username} em {request.endpoint}")
         
         return f(current_user, *args, **kwargs)
     
@@ -160,10 +269,67 @@ def generate_temp_token(user_id):
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
+
+@user_bp.route('/login/check-block', methods=['POST'])
+def check_login_block():
+    """
+    Verifica se um e-mail está bloqueado devido a tentativas de login inválidas.
+    
+    Request Body:
+        {
+            "email": "user@example.com"
+        }
+    
+    Returns:
+        200: Status do bloqueio (bloqueado ou não)
+        400: Dados inválidos
+    """
+    try:
+        data = request.json
+        
+        if not data or not data.get('email'):
+            return jsonify({'error': 'E-mail é obrigatório'}), 400
+        
+        email = data['email'].lower().strip()
+        
+        # Verificar bloqueio
+        is_blocked, block_info = LoginAttempt.is_blocked(email)
+        
+        if is_blocked:
+            return jsonify({
+                'blocked': True,
+                'blocked_until': block_info['blocked_until'].isoformat(),
+                'remaining_seconds': block_info['remaining_seconds'],
+                'remaining_minutes': block_info['remaining_minutes'],
+                'message': f"Conta bloqueada até {block_info['blocked_until'].strftime('%H:%M:%S')}"
+            }), 200
+        else:
+            # Contar tentativas recentes
+            recent_attempts = LoginAttempt.get_recent_attempts(email, minutes=5)
+            remaining = LoginAttempt.MAX_ATTEMPTS - recent_attempts
+            
+            return jsonify({
+                'blocked': False,
+                'recent_attempts': recent_attempts,
+                'remaining_attempts': max(0, remaining),
+                'message': 'Conta não bloqueada'
+            }), 200
+            
+    except Exception as e:
+        logger.error(f"Erro ao verificar bloqueio: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Erro ao verificar status do bloqueio'}), 500
+
+
 @user_bp.route('/login', methods=['POST'])
 def login():
     """
-    Endpoint de login - Primeira etapa (senha)
+    Endpoint de login com rate limiting e bloqueio de conta.
+    
+    Proteção contra força bruta:
+    - Após 5 tentativas inválidas em 5 minutos → bloqueia por 30 minutos
+    - Rastreia IP e User-Agent para auditoria
+    - Login bem-sucedido reseta o contador
+    
     Espera JSON com: username/email, password
     Cria sessão com controle de tempo de inatividade e tempo máximo de vida
     """
@@ -180,13 +346,113 @@ def login():
         if not identifier or not password:
             return jsonify({'error': 'Username/email e senha são obrigatórios'}), 400
         
+        # Obter IP e User-Agent para auditoria
+        ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+        user_agent = request.headers.get('User-Agent', '')[:255]
+        
         # Buscar usuário por username ou email
         user = User.query.filter(
             (User.username == identifier) | (User.email == identifier)
         ).first()
         
+        # Determinar e-mail para rate limiting
+        email_for_rate_limit = user.email if user else identifier
+        
+        # 1. VERIFICAR SE ESTÁ BLOQUEADO (antes de validar senha)
+        is_blocked, block_info = LoginAttempt.is_blocked(email_for_rate_limit)
+        if is_blocked:
+            logger.warning(
+                f"Tentativa de login bloqueada para {email_for_rate_limit} "
+                f"(IP: {ip_address}). Bloqueio expira em {block_info['remaining_minutes']} minutos"
+            )
+            
+            # AUDIT LOG: Tentativa de login em conta bloqueada
+            AuditLog.log_security_event(
+                event_description=f"Tentativa de login em conta bloqueada: {email_for_rate_limit}",
+                user_identifier=email_for_rate_limit,
+                details={
+                    'blocked_until': block_info['blocked_until'].isoformat(),
+                    'remaining_minutes': block_info['remaining_minutes'],
+                    'ip_address': ip_address,
+                    'user_agent': user_agent
+                },
+                severity='warning'
+            )
+            db.session.commit()
+            
+            return jsonify({
+                'error': f"Conta bloqueada temporariamente até {block_info['blocked_until'].strftime('%H:%M:%S')} "
+                        f"devido a múltiplas tentativas inválidas. Tente novamente em {block_info['remaining_minutes']} minuto(s).",
+                'blocked': True,
+                'blocked_until': block_info['blocked_until'].isoformat(),
+                'remaining_seconds': block_info['remaining_seconds']
+            }), 429  # Too Many Requests
+        
+        # 2. VALIDAR CREDENCIAIS
         if not user or not user.verify_password(password):
-            return jsonify({'error': 'Credenciais inválidas'}), 401
+            # REGISTRAR TENTATIVA FALHA
+            is_now_blocked, msg, remaining = LoginAttempt.register_attempt(
+                email=email_for_rate_limit,
+                success=False,
+                ip_address=ip_address,
+                user_agent=user_agent
+            )
+            
+            logger.warning(
+                f"Tentativa de login inválida para {email_for_rate_limit} "
+                f"(IP: {ip_address}). Restam {remaining} tentativas"
+            )
+            
+            # AUDIT LOG: Login falhou
+            AuditLog.log_login_failure(
+                user_identifier=email_for_rate_limit,
+                reason='Credenciais inválidas',
+                details={
+                    'remaining_attempts': remaining,
+                    'is_now_blocked': is_now_blocked,
+                    'ip_address': ip_address,
+                    'user_agent': user_agent
+                }
+            )
+            db.session.commit()
+            
+            if is_now_blocked:
+                # BLOQUEADO AGORA
+                return jsonify({
+                    'error': msg,
+                    'blocked': True,
+                    'remaining_attempts': 0
+                }), 429  # Too Many Requests
+            else:
+                # AINDA NÃO BLOQUEADO
+                return jsonify({
+                    'error': msg,
+                    'blocked': False,
+                    'remaining_attempts': remaining
+                }), 401  # Unauthorized
+        
+        # 3. LOGIN BEM-SUCEDIDO - RESETAR CONTADOR
+        LoginAttempt.register_attempt(
+            email=user.email,
+            success=True,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        
+        logger.info(f"Login bem-sucedido para {user.email} (IP: {ip_address})")
+        
+        # AUDIT LOG: Login bem-sucedido
+        AuditLog.log_login_success(
+            user_identifier=user.email,
+            user_id=user.id,
+            details={
+                'username': user.username,
+                'requires_mfa': user.requires_mfa(),
+                'ip_address': ip_address,
+                'user_agent': user_agent
+            }
+        )
+        db.session.commit()
         
         # Verificar se usuário requer MFA
         if user.requires_mfa():

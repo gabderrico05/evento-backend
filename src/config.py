@@ -20,9 +20,9 @@ class Config:
     """Configuração base da aplicação"""
     
     # Flask
-    SECRET_KEY = os.getenv('SECRET_KEY', 'asdf#FGSgvasgf$5$WGT')  # MUDAR EM PRODUÇÃO
+    SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')  # MUDAR EM PRODUÇÃO
     FLASK_ENV = os.getenv('FLASK_ENV', 'development')
-    DEBUG = FLASK_ENV == 'development'
+    DEBUG = False  # Sobrescrito por subclasses
     
     # Sessão
     PERMANENT_SESSION_LIFETIME = timedelta(minutes=15)  # Tempo de inatividade

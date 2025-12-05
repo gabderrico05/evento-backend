@@ -4,9 +4,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from flask import Flask, send_from_directory, session, jsonify, request, redirect
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from src.models.db import db
 from src.models.participante import Participante
+from src.models.login_attempt import LoginAttempt
+from src.models.audit_log import AuditLog
 from src.routes.user import user_bp
 from src.routes.evento import evento_bp
 from src.config import get_config
@@ -164,6 +166,57 @@ def handle_method_not_allowed(e):
     }), 405
 
 # ==========================================
+# SECURITY HEADERS MIDDLEWARE
+# ==========================================
+
+@app.after_request
+def add_security_headers(response):
+    """
+    Adiciona headers de segurança e remove headers desnecessários.
+    
+    Security Headers:
+    - Remove 'Server' header (oculta versão do servidor)
+    - X-Content-Type-Options: nosniff (previne MIME sniffing)
+    - X-Frame-Options: DENY (previne clickjacking)
+    - Content-Security-Policy: política restritiva para React frontend
+    - X-XSS-Protection: proteção contra XSS (browsers legados)
+    - Referrer-Policy: controla informações de referrer
+    
+    CSP configurado para React:
+    - script-src 'self' 'unsafe-inline' (inline scripts do React)
+    - style-src 'self' 'unsafe-inline' (CSS modules do React)
+    - img-src 'self' data: (imagens base64)
+    - connect-src 'self' (API calls)
+    """
+    # Remover header Server (ocultar versão Flask/Werkzeug)
+    response.headers.pop('Server', None)
+    
+    # Headers de segurança
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    # Content Security Policy (CSP) otimizado para React
+    # NOTA: 'unsafe-inline' necessário para React (Vite build inline styles/scripts)
+    # Em produção, considerar usar nonce-based CSP para maior segurança
+    csp_directives = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  # unsafe-eval para React DevTools
+        "style-src 'self' 'unsafe-inline'",  # inline styles do React
+        "img-src 'self' data: https:",  # data: para imagens base64, https: para CDNs
+        "font-src 'self' data:",
+        "connect-src 'self'",  # API calls ao próprio backend
+        "frame-ancestors 'none'",  # equivalente a X-Frame-Options: DENY
+        "base-uri 'self'",
+        "form-action 'self'",
+        "upgrade-insecure-requests"  # força upgrade de HTTP para HTTPS
+    ]
+    response.headers['Content-Security-Policy'] = '; '.join(csp_directives)
+    
+    return response
+
+# ==========================================
 # MIDDLEWARE DE SESSÃO
 # ==========================================
 
@@ -232,7 +285,7 @@ def health_check():
     Retorna status 200 se a aplicação está rodando.
     Pode ser usado por Nginx, Kubernetes, Docker, etc.
     """
-    return {'status': 'healthy', 'timestamp': datetime.now(datetime.UTC).isoformat()}, 200
+    return {'status': 'healthy', 'timestamp': datetime.now(timezone.utc).isoformat()}, 200
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
